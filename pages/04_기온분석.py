@@ -1,12 +1,9 @@
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
 import streamlit as st
-
-from sklearn.linear_model import LinearRegression
 
 st.set_page_config(
     page_title="서울 기온 분석",
@@ -15,16 +12,19 @@ st.set_page_config(
 
 st.title("🌡️ 서울 기온 분석")
 
-# --------------------------------------------------
-# 데이터 로드
-# --------------------------------------------------
-
 @st.cache_data
 def load_data():
 
+    # 프로젝트 루트
     root_dir = Path(__file__).resolve().parent.parent
+
     csv_path = root_dir / "seoul.csv"
 
+    if not csv_path.exists():
+        st.error(f"CSV 파일을 찾을 수 없습니다.\n{csv_path}")
+        st.stop()
+
+    # utf-8 우선 시도
     try:
         df = pd.read_csv(csv_path, encoding="utf-8")
     except:
@@ -33,8 +33,10 @@ def load_data():
         except:
             df = pd.read_csv(csv_path, encoding="cp949")
 
+    # 컬럼 5개만 사용
     df = df.iloc[:, :5]
 
+    # 컬럼명 통일
     df.columns = [
         "date",
         "station",
@@ -43,23 +45,40 @@ def load_data():
         "max_temp"
     ]
 
+    # 날짜 변환
     df["date"] = pd.to_datetime(
         df["date"],
         errors="coerce"
     )
 
+    # 날짜 없는 행 제거
     df = df.dropna(subset=["date"])
 
-    for col in ["avg_temp", "min_temp", "max_temp"]:
-        df[col] = pd.to_numeric(
-            df[col],
-            errors="coerce"
-        )
-
-    df = df.dropna(
-        subset=["min_temp", "max_temp"]
+    # 숫자형 변환
+    df["avg_temp"] = pd.to_numeric(
+        df["avg_temp"],
+        errors="coerce"
     )
 
+    df["min_temp"] = pd.to_numeric(
+        df["min_temp"],
+        errors="coerce"
+    )
+
+    df["max_temp"] = pd.to_numeric(
+        df["max_temp"],
+        errors="coerce"
+    )
+
+    # 결측 제거
+    df = df.dropna(
+        subset=[
+            "min_temp",
+            "max_temp"
+        ]
+    )
+
+    # 연월일 생성
     df["year"] = df["date"].dt.year
     df["month"] = df["date"].dt.month
     df["day"] = df["date"].dt.day
@@ -69,34 +88,32 @@ def load_data():
 
 df = load_data()
 
-# --------------------------------------------------
+# -------------------
 # 사이드바
-# --------------------------------------------------
+# -------------------
 
 st.sidebar.header("날짜 선택")
 
 month = st.sidebar.selectbox(
-    "월",
+    "월 선택",
     sorted(df["month"].unique())
 )
 
 available_days = sorted(
-    df[df["month"] == month]["day"].unique()
+    df.loc[
+        df["month"] == month,
+        "day"
+    ].unique()
 )
 
 day = st.sidebar.selectbox(
-    "일",
+    "일 선택",
     available_days
 )
 
-future_year = st.sidebar.selectbox(
-    "예측 연도",
-    list(range(2025, 2101))
-)
-
-# --------------------------------------------------
+# -------------------
 # 필터링
-# --------------------------------------------------
+# -------------------
 
 filtered = df[
     (df["month"] == month) &
@@ -109,24 +126,9 @@ st.subheader(
     f"📅 {month}월 {day}일 연도별 최고·최저기온"
 )
 
-# --------------------------------------------------
-# 예측 모델
-# --------------------------------------------------
-
-X = filtered[["year"]]
-
-max_model = LinearRegression()
-max_model.fit(X, filtered["max_temp"])
-
-min_model = LinearRegression()
-min_model.fit(X, filtered["min_temp"])
-
-pred_max = max_model.predict([[future_year]])[0]
-pred_min = min_model.predict([[future_year]])[0]
-
-# --------------------------------------------------
+# -------------------
 # 무지개색
-# --------------------------------------------------
+# -------------------
 
 if len(filtered) > 1:
     rainbow_colors = px.colors.sample_colorscale(
@@ -136,14 +138,13 @@ if len(filtered) > 1:
 else:
     rainbow_colors = ["red"]
 
-# --------------------------------------------------
+# -------------------
 # 그래프
-# --------------------------------------------------
+# -------------------
 
 fig = go.Figure()
 
 # 최고기온
-
 fig.add_trace(
     go.Scatter(
         x=filtered["year"],
@@ -162,7 +163,6 @@ fig.add_trace(
 )
 
 # 최저기온
-
 fig.add_trace(
     go.Scatter(
         x=filtered["year"],
@@ -174,42 +174,8 @@ fig.add_trace(
             width=3
         ),
         marker=dict(
-            size=7,
-            color="lightblue"
-        )
-    )
-)
-
-# 최고기온 예측점
-
-fig.add_trace(
-    go.Scatter(
-        x=[future_year],
-        y=[pred_max],
-        mode="markers+text",
-        name="최고기온 예측",
-        text=[f"{pred_max:.1f}℃"],
-        textposition="top center",
-        marker=dict(
-            size=16,
-            symbol="star"
-        )
-    )
-)
-
-# 최저기온 예측점
-
-fig.add_trace(
-    go.Scatter(
-        x=[future_year],
-        y=[pred_min],
-        mode="markers+text",
-        name="최저기온 예측",
-        text=[f"{pred_min:.1f}℃"],
-        textposition="bottom center",
-        marker=dict(
-            size=16,
-            symbol="diamond"
+            color="lightblue",
+            size=7
         )
     )
 )
@@ -219,7 +185,17 @@ fig.update_layout(
     hovermode="x unified",
     legend_title="범례",
     xaxis_title="연도",
-    yaxis_title="기온(℃)"
+    yaxis_title="기온 (℃)"
+)
+
+fig.update_xaxes(
+    showgrid=True,
+    tickmode="linear",
+    dtick=10
+)
+
+fig.update_yaxes(
+    showgrid=True
 )
 
 st.plotly_chart(
@@ -227,29 +203,37 @@ st.plotly_chart(
     use_container_width=True
 )
 
-# --------------------------------------------------
-# 예측 결과
-# --------------------------------------------------
+# -------------------
+# 요약 통계
+# -------------------
 
-st.subheader("🔮 미래 기온 예측")
+st.subheader("📊 요약 통계")
 
-c1, c2 = st.columns(2)
+col1, col2, col3, col4 = st.columns(4)
 
-with c1:
-    st.metric(
-        f"{future_year}년 예상 최고기온",
-        f"{pred_max:.1f}℃"
-    )
+col1.metric(
+    "최고기온 평균",
+    f"{filtered['max_temp'].mean():.1f}℃"
+)
 
-with c2:
-    st.metric(
-        f"{future_year}년 예상 최저기온",
-        f"{pred_min:.1f}℃"
-    )
+col2.metric(
+    "최저기온 평균",
+    f"{filtered['min_temp'].mean():.1f}℃"
+)
 
-# --------------------------------------------------
-# 원본 데이터
-# --------------------------------------------------
+col3.metric(
+    "역대 최고",
+    f"{filtered['max_temp'].max():.1f}℃"
+)
+
+col4.metric(
+    "역대 최저",
+    f"{filtered['min_temp'].min():.1f}℃"
+)
+
+# -------------------
+# 데이터 테이블
+# -------------------
 
 st.subheader("📋 데이터")
 
